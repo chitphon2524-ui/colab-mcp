@@ -1,0 +1,254 @@
+สร้างภาพ 3:4 SHOP DRAWING DESIGN BLUEPRINT BLACK -WHITE PAPERS 
+<>
+# Colab-mcp
+
+An MCP server for bridging your local agent to a Colab session in the browser.
+
+# Supported Clients
+This MCP server requires client support for `notifications/tools/list_changed` and for the client to be running locally on your device. 
+
+Popular clients that fit these criteria include:
+- Gemini CLI
+- Claude Code
+- Windsurf
+
+
+# Setup
+
+- Install `uv` (`pip install uv`)
+- Configure for usage (eg for mcp.json style services):
+
+```
+...
+  "mcpServers": {
+    "colab-mcp": {
+      "command": "uvx",
+      "args": ["git+https://github.com/googlecolab/colab-mcp"],
+      "timeout": 30000
+    }
+  }
+...
+```
+
+(If you have a non-standard default package index (**Googlers**), you may also need to add `--index https://pypi.org/simple`)
+
+# Issues & Discussions
+
+We are using GitHub [discussions](https://github.com/googlecolab/colab-mcp/discussions) as the
+place for issue discussion and feature requests. As discussions mature into action items, we
+will add those items as issues. This helps us ensure that issues in the issue tracker are
+well-understood, deduplicated, and actionable. For these reasons, **please do <u>NOT</u> open
+issues directly.** 
+
+# Contributing 
+We unfortunately don't have the bandwidth to support review of external contributions, and we 
+don't want user PRs to languish, so we aren't accepting any external contributions right now.
+
+If you have a great idea or pain point, we would love to hear about it on our 
+[discussions](https://github.com/googlecolab/colab-mcp/discussions) page - the preferred place 
+for issue discussion and feature requests.
+
+# Internal - For Colab Developers
+
+### Prerequisites
+
+- `uv` is required (`pip install uv`)
+- Configure git hooks to run repo presubmits
+
+```shell
+git config core.hooksPath .githooks
+```
+
+### Gemini CLI setup
+
+```
+...
+  "mcpServers": {
+    "colab-mcp": {
+      "command": "uv",
+      "args": ["run", "colab-mcp"],
+      "cwd": "/path/to/github/colab-mcp",
+      "timeout": 30000
+    }
+>
+...
+  "mcpServers": {
+    "colab-mcp": {
+      "command": "uvx",
+      "args": ["git+https://github.com/googlecolab/colab-mcp"],
+      "timeout": 30000
+    }
+  }
+...
+>...
+  "mcpServers": {
+    "colab-mcp": {
+      "command": "uv",
+      "args": ["run", "colab-mcp"],
+      "cwd": "/path/to/github/colab-mcp",
+      "timeout": 30000
+    }
+  }
+...
+#!/usr/bin/env python3
+"""
+colab_mcp_blueprint.py
+Integrated utility to manage Colab-MCP configurations and display/export blueprint specifications.
+"""
+
+from typing import Dict, Any, Sequence
+import json
+import sys
+from pathlib import Path
+import argparse
+from datetime import datetime
+
+REQUIRED_KEYS = {
+    "project_name", "drawing_title", "drawing_no", "revision",
+    "scale", "date", "dataset_ref", "security", "auth", "serial_no"
+}
+
+def generate_default_mcp_config(server_name: str = "colab-mcp", use_uvx: bool = True) -> Dict[str, Any]:
+    """Generate a standard MCP configuration dictionary for colab-mcp."""
+    if use_uvx:
+        server_config = {
+            "command": "uvx",
+            "args": ["git+https://github.com/googlecolab/colab-mcp"],
+            "timeout": 30000
+        }
+    else:
+        server_config = {
+            "command": "uv",
+            "args": ["run", "colab-mcp"],
+            "cwd": "/path/to/github/colab-mcp",
+            "timeout": 30000
+        }
+    return {"mcpServers": {server_name: server_config}}
+
+def format_blueprint_specs(data: Dict[str, Any]) -> str:
+    """
+    Return a human-readable multi-line string of blueprint specs.
+    Raises KeyError if required keys are missing.
+    """
+    missing = REQUIRED_KEYS - set(data.keys())
+    if missing:
+        raise KeyError(f"Missing required keys: {', '.join(sorted(missing))}")
+    lines = []
+    lines.append(f"=== {data['project_name']} ===")
+    lines.append(f"Drawing: {data['drawing_title']}")
+    lines.append(f"Drawing No: {data['drawing_no']} (Rev: {data['revision']})")
+    lines.append(f"Date: {data['date']} | Scale: {data['scale']}")
+    lines.append("-" * 40)
+    lines.append(f"Dataset Ref: {data['dataset_ref']}")
+    lines.append(f"Security Level: {data['security']}")
+    lines.append(f"Authorization: {data['auth']}")
+    lines.append(f"Serial No: {data['serial_no']}")
+    return "\n".join(lines)
+
+
+def export_json(data: Dict[str, Any], path: Path) -> None:
+    """
+    Write the data as pretty JSON to the given path.
+    Raises exceptions on failure.
+    """
+    parent = path.parent
+    if parent and not parent.exists():
+        raise FileNotFoundError(f"Destination directory does not exist: {parent}")
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def validate_data(data: Dict[str, Any]) -> None:
+    """
+    Basic validation for required keys and date format.
+    Raises ValueError or KeyError on invalid data.
+    """
+    missing = REQUIRED_KEYS - set(data.keys())
+    if missing:
+        raise KeyError(f"Missing required keys: {', '.join(sorted(missing))}")
+
+    date_value = str(data.get("date", ""))
+    for fmt in ("%Y.%m.%d", "%Y-%m-%d"):
+        try:
+            datetime.strptime(date_value, fmt)
+            break
+        except ValueError:
+            continue
+    else:
+        raise ValueError("date must be in YYYY.MM.DD or YYYY-MM-DD format")
+
+
+def load_json(path: Path) -> Dict[str, Any]:
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def main(argv: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(description="Colab-MCP Configuration & Blueprint Specification Utility.")
+    parser.add_argument("--input", "-i", type=Path, help="Path to JSON file containing blueprint data.")
+    parser.add_argument("--export", "-e", type=Path, help="Path to write JSON export.")
+    parser.add_argument("--mcp-config", action="store_true", help="Output standard colab-mcp configuration snippet.")
+    parser.add_argument("--uv-run", action="store_true", help="Use 'uv run' instead of 'uvx' for MCP config.")
+    args = parser.parse_args(argv[1:])
+
+    if args.mcp_config:
+        config = generate_default_mcp_config(use_uvx=not args.uv_run)
+        print(json.dumps(config, indent=2))
+        return 0
+
+    # Default example data
+    project_info: Dict[str, Any] = {
+        "project_name": "COLAB-MCP BRIDGE ARCHITECTURE (U-SIM)",
+        "drawing_title": "COMMAND CENTER CHAIR & CONSOLE INTEGRATED SCHEMATIC",
+        "drawing_no": "COLAB-MCP-CCS-001-A",
+        "revision": "03",
+        "scale": "AS NOTED",
+        "date": "2026.10.16",
+        "dataset_ref": "COLAB_MCP_REF_001",
+        "security": "LEVEL 7+",
+        "auth": "CHIPHON_D",
+        "serial_no": "88-49SD-01HV"
+    }
+
+    if args.input:
+        try:
+            project_info = load_json(args.input)
+        except Exception as exc:
+            print(f"Error loading input JSON: {exc}", file=sys.stderr)
+            return 2
+
+    try:
+        validate_data(project_info)
+    except KeyError as ke:
+        print(f"Validation error: {ke}", file=sys.stderr)
+        return 3
+    except ValueError as ve:
+        print(f"Validation error: {ve}", file=sys.stderr)
+        return 4
+
+    try:
+        out = format_blueprint_specs(project_info)
+        print(out)
+    except KeyError as ke:
+        print(f"Formatting error: {ke}", file=sys.stderr)
+        return 5
+
+    if args.export:
+        try:
+            export_json(project_info, args.export)
+            print(f"\nExported JSON to: {args.export}")
+        except Exception as exc:
+            print(f"Error exporting JSON: {exc}", file=sys.stderr)
+            return 6
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))
+
+
+  }
+...
+```
+</>
